@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/example.png" alt="IINAplex logo" width="140">
+  <img src="docs/images/logo.jpeg" alt="IINAplex logo" width="140">
 </p>
 
 <h1 align="center">IINAplex</h1>
