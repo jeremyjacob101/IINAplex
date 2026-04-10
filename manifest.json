@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Plex Play in IINA",
+  "version": "0.3.0",
+  "description": "Adds a Play in IINA button to Plex Web.",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["scripting"],
+  "content_scripts": [
+    {
+      "matches": [
+        "http://127.0.0.1:32400/*",
+        "http://localhost:32400/*",
+        "http://app.plex.tv/*",
+        "https://app.plex.tv/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:32400/*",
+    "http://localhost:32400/*",
+    "http://app.plex.tv/*",
+    "https://app.plex.tv/*"
+  ]
+}
