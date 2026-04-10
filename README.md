@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/logo.jpeg" alt="IINAplex logo" width="140">
+  <img src="docs/images/logo2.jpeg" alt="IINAplex logo" width="140">
 </p>
 
 <h1 align="center">IINAplex</h1>
@@ -11,7 +11,7 @@
 <p align="center">
   <img alt="Manifest V3" src="https://img.shields.io/badge/Manifest-V3-111827?style=for-the-badge&logo=googlechrome&logoColor=white">
   <img alt="Vanilla JavaScript" src="https://img.shields.io/badge/JavaScript-Vanilla-F59E0B?style=for-the-badge&logo=javascript&logoColor=111827">
-  <img alt="Plex Integration" src="https://img.shields.io/badge/Plex-Web-Integration-0F766E?style=for-the-badge">
+  <img alt="Plex Web" src="https://img.shields.io/badge/Plex-Web-0F766E?style=for-the-badge">
   <img alt="Version 0.3.0" src="https://img.shields.io/badge/Version-0.3.0-2563EB?style=for-the-badge">
   <a href="LICENSE"><img alt="License MIT" src="https://img.shields.io/badge/License-MIT-16A34A?style=for-the-badge"></a>
 </p>
