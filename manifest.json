@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Plex Play in IINA",
+  "name": "IINAplex",
   "version": "0.3.0",
   "description": "Adds a Play in IINA button to Plex Web.",
   "background": {
