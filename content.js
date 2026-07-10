@@ -4,8 +4,6 @@
     "/html/body/div[1]/div[3]/div/div[2]/div[2]/div/div[1]/div/div[2]/div[2]/button[1]";
 
   const INSTALL_DEBOUNCE_MS = 250;
-  const MENU_WAIT_MS = 3500;
-  const MENU_POLL_MS = 150;
 
   let installTimer = null;
   let observerStarted = false;
@@ -45,41 +43,6 @@
     return Array.from(document.querySelectorAll("button")).filter(isVisible);
   }
 
-  function scoreAnchor(a) {
-    const href = a.href || "";
-    const text = getButtonText(a).toLowerCase();
-    const target = (a.target || "").toLowerCase();
-
-    let score = 0;
-    if (!href) return -1;
-    if (/download/i.test(href)) score += 50;
-    if (/download/i.test(text)) score += 30;
-    if (/downloadfileframe/i.test(target)) score += 20;
-    if (/x-plex-token=/i.test(href)) score += 15;
-    if (/\/library\/parts\//i.test(href)) score += 15;
-    if (/\/transcode\//i.test(href)) score += 10;
-    if (
-      /\.mkv(\?|$)|\.mp4(\?|$)|\.avi(\?|$)|\.mov(\?|$)|\.m3u8(\?|$)/i.test(href)
-    ) {
-      score += 10;
-    }
-    if (/plex/i.test(href)) score += 5;
-    return score;
-  }
-
-  function getInterestingAnchors(root = document) {
-    return Array.from(root.querySelectorAll("a[href]"))
-      .map((a) => ({
-        el: a,
-        href: a.href,
-        text: getButtonText(a),
-        target: a.target || "",
-        score: scoreAnchor(a),
-      }))
-      .filter((x) => x.score > 0)
-      .sort((a, b) => b.score - a.score);
-  }
-
   function findPlayButton() {
     const xpathMatch = xpathNode(PLAY_BUTTON_XPATH);
     if (
@@ -114,89 +77,6 @@
     );
   }
 
-  function findMoreButton(playButton) {
-    const directSelectors = [
-      'button[data-qa-id="preplay-more"]',
-      'button[data-testid="preplay-more"]',
-      'button[aria-label="More"]',
-      'button[title="More"]',
-    ];
-
-    for (const selector of directSelectors) {
-      const match = Array.from(document.querySelectorAll(selector)).find(
-        isVisible,
-      );
-      if (match) return match;
-    }
-
-    if (playButton?.parentElement) {
-      const siblingButtons = Array.from(
-        playButton.parentElement.querySelectorAll("button"),
-      ).filter((b) => b !== playButton && isVisible(b));
-
-      const moreish = siblingButtons.find((btn) => {
-        const text = getButtonText(btn).toLowerCase();
-        const aria = (btn.getAttribute("aria-label") || "").toLowerCase();
-        const title = (btn.getAttribute("title") || "").toLowerCase();
-        return (
-          text.includes("more") ||
-          aria.includes("more") ||
-          title.includes("more")
-        );
-      });
-
-      if (moreish) return moreish;
-      if (siblingButtons.length)
-        return siblingButtons[siblingButtons.length - 1];
-    }
-
-    return null;
-  }
-
-  function clickElement(el) {
-    if (!el) return;
-    el.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
-    el.dispatchEvent(
-      new MouseEvent("mousedown", { bubbles: true, cancelable: true }),
-    );
-    el.dispatchEvent(
-      new MouseEvent("mouseup", { bubbles: true, cancelable: true }),
-    );
-    el.dispatchEvent(
-      new MouseEvent("click", { bubbles: true, cancelable: true }),
-    );
-  }
-
-  function waitFor(fn, timeoutMs = MENU_WAIT_MS, intervalMs = MENU_POLL_MS) {
-    return new Promise((resolve, reject) => {
-      const start = Date.now();
-
-      function tick() {
-        let result = null;
-        try {
-          result = fn();
-        } catch (e) {
-          reject(e);
-          return;
-        }
-
-        if (result) {
-          resolve(result);
-          return;
-        }
-
-        if (Date.now() - start >= timeoutMs) {
-          reject(new Error("Timed out"));
-          return;
-        }
-
-        setTimeout(tick, intervalMs);
-      }
-
-      tick();
-    });
-  }
-
   function getHashRouteUrl() {
     try {
       const rawHash = location.hash || "";
@@ -222,6 +102,14 @@
     } catch {
       return key;
     }
+  }
+
+  function isFilmDetailView() {
+    const routeUrl = getHashRouteUrl();
+    if (!routeUrl || !getMetadataKeyFromLocation()) return false;
+
+    const path = routeUrl.pathname.toLowerCase();
+    return /\/(details|preplay)(?:\/|$)/.test(path);
   }
 
   function addTokenCandidate(list, rawToken) {
@@ -286,7 +174,7 @@
     return items;
   }
 
-  function findTokenCandidates() {
+  async function findTokenCandidates() {
     const candidates = [];
     const storageEntries = [
       ...getStorageEntries(localStorage),
@@ -304,10 +192,27 @@
       scanValueForTokens(a.href, "anchor.href", candidates);
     }
 
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "GET_PLEX_TOKEN",
+      });
+      addTokenCandidate(candidates, response?.token);
+    } catch {}
+
     return candidates;
   }
 
-  function parseJsonPartKey(jsonText) {
+  function isSelectedPlexStream(stream) {
+    return stream?.selected === true || String(stream?.selected) === "1";
+  }
+
+  function selectedFirst(subtitles) {
+    return [...subtitles].sort(
+      (a, b) => Number(b.selected) - Number(a.selected),
+    );
+  }
+
+  function parseJsonMediaInfo(jsonText) {
     try {
       const obj = JSON.parse(jsonText);
       const metadata =
@@ -319,21 +224,48 @@
 
       const media = metadata?.Media?.[0] || metadata?.Media || null;
       const part = media?.Part?.[0] || media?.Part || null;
+      const streams = Array.isArray(part?.Stream)
+        ? part.Stream
+        : part?.Stream
+          ? [part.Stream]
+          : [];
+      const subtitleStreams = streams.filter(
+        (stream) => Number(stream?.streamType) === 3 && stream?.key,
+      ).map((stream) => ({
+        key: stream.key,
+        selected: isSelectedPlexStream(stream),
+      }));
 
-      return part?.key || null;
+      return {
+        partKey: part?.key || null,
+        subtitles: selectedFirst(subtitleStreams),
+      };
     } catch {
-      return null;
+      return { partKey: null, subtitles: [] };
     }
   }
 
-  function parseXmlPartKey(xmlText) {
+  function parseXmlMediaInfo(xmlText) {
     try {
       const doc = new DOMParser().parseFromString(xmlText, "application/xml");
-      if (doc.querySelector("parsererror")) return null;
+      if (doc.querySelector("parsererror")) {
+        return { partKey: null, subtitles: [] };
+      }
+
       const part = doc.querySelector("Part[key]");
-      return part?.getAttribute("key") || null;
+      const subtitleStreams = Array.from(
+        part?.querySelectorAll('Stream[streamType="3"][key]') || [],
+      ).map((stream) => ({
+        key: stream.getAttribute("key"),
+        selected: stream.getAttribute("selected") === "1",
+      })).filter((stream) => stream.key);
+
+      return {
+        partKey: part?.getAttribute("key") || null,
+        subtitles: selectedFirst(subtitleStreams),
+      };
     } catch {
-      return null;
+      return { partKey: null, subtitles: [] };
     }
   }
 
@@ -370,13 +302,43 @@
     return url.toString();
   }
 
+  function buildSubtitleUrl(subtitleKey, token) {
+    const url = new URL(subtitleKey, location.origin);
+    url.searchParams.set("download", "1");
+    if (token) {
+      url.searchParams.set("X-Plex-Token", token);
+    }
+    return url.toString();
+  }
+
+  function buildPlaybackUrl(partKey, subtitles, token) {
+    const url = new URL(buildPartUrl(partKey, token));
+    const selectedSubtitle = subtitles.find((subtitle) => subtitle.selected);
+
+    for (const subtitle of subtitles) {
+      url.searchParams.append(
+        "iinaplex-subtitle",
+        buildSubtitleUrl(subtitle.key, token),
+      );
+    }
+
+    if (selectedSubtitle) {
+      url.searchParams.set(
+        "iinaplex-selected-subtitle",
+        buildSubtitleUrl(selectedSubtitle.key, token),
+      );
+    }
+
+    return url.toString();
+  }
+
   async function resolveViaMetadata() {
     const metadataKey = getMetadataKeyFromLocation();
     if (!metadataKey) {
       throw new Error("No metadata key found in current Plex URL");
     }
 
-    const tokenCandidates = findTokenCandidates();
+    const tokenCandidates = await findTokenCandidates();
     const tokensToTry = [null, ...tokenCandidates.map((x) => x.token)];
 
     for (const token of tokensToTry) {
@@ -384,48 +346,31 @@
         const { response, text } = await fetchMetadataText(metadataKey, token);
         if (!response.ok) continue;
 
-        const jsonPartKey = parseJsonPartKey(text);
-        if (jsonPartKey) {
-          return buildPartUrl(jsonPartKey, token);
+        const jsonInfo = parseJsonMediaInfo(text);
+        if (jsonInfo.partKey) {
+          return {
+            mediaUrl: buildPlaybackUrl(
+              jsonInfo.partKey,
+              jsonInfo.subtitles,
+              token,
+            ),
+          };
         }
 
-        const xmlPartKey = parseXmlPartKey(text);
-        if (xmlPartKey) {
-          return buildPartUrl(xmlPartKey, token);
+        const xmlInfo = parseXmlMediaInfo(text);
+        if (xmlInfo.partKey) {
+          return {
+            mediaUrl: buildPlaybackUrl(
+              xmlInfo.partKey,
+              xmlInfo.subtitles,
+              token,
+            ),
+          };
         }
       } catch {}
     }
 
     throw new Error("Could not resolve direct Plex media URL from metadata");
-  }
-
-  async function resolveViaMoreMenu(playButton) {
-    const moreButton = findMoreButton(playButton);
-    if (!moreButton) {
-      throw new Error("Could not find More button");
-    }
-
-    clickElement(moreButton);
-
-    try {
-      return await waitFor(() => {
-        const anchors = getInterestingAnchors();
-        const best = anchors[0];
-        if (best && best.score >= 40) {
-          return best.href;
-        }
-        return null;
-      });
-    } finally {
-      setTimeout(() => {
-        document.dispatchEvent(
-          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-        );
-        document.dispatchEvent(
-          new KeyboardEvent("keyup", { key: "Escape", bubbles: true }),
-        );
-      }, 50);
-    }
   }
 
   async function openInIINA(mediaUrl) {
@@ -470,31 +415,25 @@
     btn.style.cursor = disabled ? "default" : "pointer";
   }
 
-  async function onButtonClick(btn, playButton) {
+  async function onButtonClick(btn) {
     try {
       setButtonState(btn, "Working…", true);
 
-      let mediaUrl = null;
-
-      try {
-        mediaUrl = await resolveViaMoreMenu(playButton);
-      } catch {}
-
-      if (!mediaUrl) {
-        mediaUrl = await resolveViaMetadata();
-      }
-
+      const { mediaUrl } = await resolveViaMetadata();
       await openInIINA(mediaUrl);
       setButtonState(btn, "Opened");
 
       setTimeout(() => {
         if (document.contains(btn)) setButtonState(btn, "Play in IINA");
       }, 1500);
-    } catch {
+    } catch (error) {
+      console.error("[IINAplex] Could not open Plex media in IINA.", error);
       setButtonState(btn, "Failed");
 
       setTimeout(() => {
-        if (document.contains(btn)) setButtonState(btn, "Play in IINA");
+        if (document.contains(btn)) {
+          setButtonState(btn, "Play in IINA");
+        }
       }, 1800);
     } finally {
       btn.disabled = false;
@@ -504,17 +443,27 @@
   }
 
   function installButton() {
+    const currentRoute = location.hash || "";
     const existing = document.getElementById(BUTTON_ID);
-    if (existing) return;
+    if (!isFilmDetailView()) {
+      existing?.remove();
+      return;
+    }
+
+    if (existing) {
+      if (existing.dataset.plexIinaRoute === currentRoute) return;
+      existing.remove();
+    }
 
     const playButton = findPlayButton();
     if (!playButton) return;
 
     const btn = makeButton();
+    btn.dataset.plexIinaRoute = currentRoute;
     btn.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      onButtonClick(btn, playButton);
+      onButtonClick(btn);
     });
 
     if (playButton.parentElement) {

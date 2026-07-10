@@ -17,12 +17,13 @@
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["scripting"],
+  "permissions": ["scripting", "storage", "webRequest"],
   "content_scripts": [
     {
       "matches": [
         "http://127.0.0.1:32400/*",
         "http://localhost:32400/*",
+        "http://10.100.102.13:32400/*",
         "http://app.plex.tv/*",
         "https://app.plex.tv/*"
       ],
@@ -33,6 +34,7 @@
   "host_permissions": [
     "http://127.0.0.1:32400/*",
     "http://localhost:32400/*",
+    "http://10.100.102.13:32400/*",
     "http://app.plex.tv/*",
     "https://app.plex.tv/*"
   ]

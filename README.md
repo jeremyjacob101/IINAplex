@@ -116,6 +116,16 @@ Then:
 - Navigate to any movie or episode
 - Click **Play in IINA**
 
+### External Plex subtitles
+
+Plex sidecar subtitle files need the included IINA companion plugin because current IINA versions intentionally block external subtitle-file parameters in `iina://` URLs.
+
+1. Open [IINAplexSubtitles.iinaplgz](iina/IINAplexSubtitles.iinaplgz) with IINA
+2. Confirm the installation prompt
+3. Restart IINA once
+
+IINAplex passes every available Plex external subtitle track with the media URL; the companion plugin loads them into IINA and puts Plex's selected subtitle first.
+
 ---
 
 ## Project Structure
