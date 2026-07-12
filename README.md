@@ -38,8 +38,8 @@ No server, no setup pipeline, no external dependencies — just load the extensi
 
 - Adds a **Play in IINA** button next to Plex’s play controls
 - Extracts the direct media stream URL from Plex
+- Copies the selected Plex subtitle into IINA as a normal subtitle track
 - Opens that stream using the `iina://` URL scheme
-- Falls back across multiple strategies to reliably resolve media
 - Works on both local Plex servers and hosted Plex Web
 
 ---
@@ -67,20 +67,15 @@ flowchart LR
 
 ## Media Resolution Strategy
 
-Plex does not expose direct media URLs in a simple way, so the extension uses multiple approaches:
+Plex does not expose direct media URLs in a simple way, so the extension resolves them from the current detail page and its metadata:
 
-### 1. “More” Menu Scraping
-- Opens the **More (…) menu**
-- Searches for download or stream links
-- Scores and selects the most likely direct media URL
-
-### 2. Metadata Resolution
+### 1. Metadata Resolution
 - Extracts the internal Plex metadata key from the URL
 - Fetches metadata (JSON/XML)
 - Locates the actual media **Part** key
 - Builds a direct downloadable stream URL
 
-### 3. Token Discovery
+### 2. Token Discovery
 - Scans:
   - `localStorage`
   - `sessionStorage`
@@ -88,7 +83,10 @@ Plex does not expose direct media URLs in a simple way, so the extension uses mu
 - Extracts valid `X-Plex-Token` values
 - Retries requests with discovered tokens
 
-This layered approach makes the extension resilient across different Plex setups.
+### 3. Native Subtitle Handoff
+- Uses Plex's universal transcoder to copy the subtitle currently selected in Plex into an MKV stream
+- Opens that normal HTTPS stream directly in IINA, where it appears in the subtitle selector
+- Requires no IINA plugin or helper application
 
 ---
 
@@ -118,13 +116,7 @@ Then:
 
 ### External Plex subtitles
 
-Plex sidecar subtitle files need the included IINA companion plugin because current IINA versions intentionally block external subtitle-file parameters in `iina://` URLs.
-
-1. Open [IINAplexSubtitles.iinaplgz](iina/IINAplexSubtitles.iinaplgz) with IINA
-2. Confirm the installation prompt
-3. Restart IINA once
-
-IINAplex passes every available Plex external subtitle track with the media URL; the companion plugin loads them into IINA and puts Plex's selected subtitle first.
+No IINA plugin is required. When a subtitle is selected in Plex, IINAplex asks Plex to copy it into a standard MKV stream. The extension prepares that stream as the detail page opens, then hands it directly to IINA from your button click in a new window. Choose the subtitle in Plex first, then click **Play in IINA**. It appears as a normal selectable track in IINA. If the button says **Ready — click again**, the initial click simply arrived before Plex finished preparing the stream.
 
 ---
 
@@ -143,10 +135,10 @@ IINAplex passes every available Plex external subtitle track with the media URL;
   Declares permissions, content scripts, and extension configuration
 
 - `background.js`  
-  Handles communication and opens IINA via the `iina://` protocol
+  Captures the active Plex connection for the content script
 
 - `content.js`  
-  Injects UI, detects playback context, and resolves media URLs
+  Injects UI, resolves media URLs, and hands off directly to IINA from the click
 
 ---
 
@@ -157,7 +149,7 @@ IINAplex passes every available Plex external subtitle track with the media URL;
 The extension builds a custom URL:
 
 ```
-iina://open?url=<encoded_media_url>
+iina://weblink?url=<encoded_media_url>
 ```
 
 Optional flags include:

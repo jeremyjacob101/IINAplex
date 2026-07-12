@@ -7,6 +7,9 @@
 
   let installTimer = null;
   let observerStarted = false;
+  let prefetchedRoute = null;
+  let prefetchedMediaUrl = null;
+  let prefetchPromise = null;
 
   function isVisible(el) {
     if (!el || !(el instanceof Element)) return false;
@@ -174,7 +177,18 @@
     return items;
   }
 
-  async function findTokenCandidates() {
+  async function getSavedPlexConnection() {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "GET_PLEX_CONNECTION",
+      });
+      return response?.ok ? response.connection || null : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function findTokenCandidates(savedConnection) {
     const candidates = [];
     const storageEntries = [
       ...getStorageEntries(localStorage),
@@ -192,6 +206,8 @@
       scanValueForTokens(a.href, "anchor.href", candidates);
     }
 
+    addTokenCandidate(candidates, savedConnection?.token);
+
     try {
       const response = await chrome.runtime.sendMessage({
         type: "GET_PLEX_TOKEN",
@@ -200,6 +216,30 @@
     } catch {}
 
     return candidates;
+  }
+
+  function addOriginCandidate(origins, value, token) {
+    try {
+      const url = new URL(value, location.origin);
+      if (!/^https?:$/.test(url.protocol)) return;
+
+      const urlToken = url.searchParams.get("X-Plex-Token");
+      if (token && urlToken && urlToken !== token) return;
+      if (!origins.includes(url.origin)) origins.push(url.origin);
+    } catch {}
+  }
+
+  function getPlexServerOrigin(token, savedConnection) {
+    const origins = [];
+
+    for (const video of Array.from(document.querySelectorAll("video"))) {
+      addOriginCandidate(origins, video.currentSrc || video.src, token);
+    }
+
+    addOriginCandidate(origins, savedConnection?.origin, token);
+    addOriginCandidate(origins, location.origin, token);
+
+    return origins[0] || location.origin;
   }
 
   function isSelectedPlexStream(stream) {
@@ -234,6 +274,13 @@
       ).map((stream) => ({
         key: stream.key,
         selected: isSelectedPlexStream(stream),
+        title:
+          stream.extendedDisplayTitle ||
+          stream.displayTitle ||
+          stream.title ||
+          null,
+        language: stream.languageCode || stream.language || null,
+        codec: stream.codec || stream.format || null,
       }));
 
       return {
@@ -258,6 +305,19 @@
       ).map((stream) => ({
         key: stream.getAttribute("key"),
         selected: stream.getAttribute("selected") === "1",
+        title:
+          stream.getAttribute("extendedDisplayTitle") ||
+          stream.getAttribute("displayTitle") ||
+          stream.getAttribute("title") ||
+          null,
+        language:
+          stream.getAttribute("languageCode") ||
+          stream.getAttribute("language") ||
+          null,
+        codec:
+          stream.getAttribute("codec") ||
+          stream.getAttribute("format") ||
+          null,
       })).filter((stream) => stream.key);
 
       return {
@@ -302,34 +362,69 @@
     return url.toString();
   }
 
-  function buildSubtitleUrl(subtitleKey, token) {
-    const url = new URL(subtitleKey, location.origin);
-    url.searchParams.set("download", "1");
-    if (token) {
-      url.searchParams.set("X-Plex-Token", token);
+  function buildEmbeddedSubtitleUrl(metadataKey, token, serverOrigin) {
+    if (!token) {
+      throw new Error("No Plex access token was available for subtitle playback");
+    }
+
+    const session = `iinaplex-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2)}`;
+    const url = new URL(
+      "/video/:/transcode/universal/start.m3u8",
+      serverOrigin,
+    );
+    const params = {
+      hasMDE: "1",
+      path: metadataKey,
+      mediaIndex: "0",
+      partIndex: "0",
+      protocol: "http",
+      fastSeek: "1",
+      directPlay: "0",
+      directStream: "1",
+      directStreamAudio: "1",
+      subtitleSize: "100",
+      audioBoost: "100",
+      subtitles: "embedded",
+      advancedSubtitles: "text",
+      location: "lan",
+      videoQuality: "100",
+      videoResolution: "1920x1080",
+      videoBitrate: "20000",
+      maxVideoBitrate: "20000",
+      session,
+      "X-Plex-Token": token,
+      "X-Plex-Client-Identifier": "iinaplex-browser-extension",
+      "X-Plex-Product": "IINAplex",
+      "X-Plex-Version": "1.0.0",
+      "X-Plex-Platform": "macOS",
+      "X-Plex-Device": "IINA",
+      "X-Plex-Device-Name": "IINA",
+      "X-Plex-Client-Profile-Name": "Plex Desktop",
+    };
+
+    for (const [key, value] of Object.entries(params)) {
+      url.searchParams.set(key, value);
     }
     return url.toString();
   }
 
-  function buildPlaybackUrl(partKey, subtitles, token) {
-    const url = new URL(buildPartUrl(partKey, token));
-    const selectedSubtitle = subtitles.find((subtitle) => subtitle.selected);
-
-    for (const subtitle of subtitles) {
-      url.searchParams.append(
-        "iinaplex-subtitle",
-        buildSubtitleUrl(subtitle.key, token),
-      );
+  function buildPlaybackUrl(
+    metadataKey,
+    partKey,
+    subtitles,
+    token,
+    serverOrigin,
+  ) {
+    // Plex copies the subtitle currently selected in Plex into a normal MKV
+    // stream. IINA can then expose it in its own subtitle selector without a
+    // plugin or a nested URL scheme.
+    if (subtitles.some((subtitle) => subtitle.selected)) {
+      return buildEmbeddedSubtitleUrl(metadataKey, token, serverOrigin);
     }
 
-    if (selectedSubtitle) {
-      url.searchParams.set(
-        "iinaplex-selected-subtitle",
-        buildSubtitleUrl(selectedSubtitle.key, token),
-      );
-    }
-
-    return url.toString();
+    return buildPartUrl(partKey, token);
   }
 
   async function resolveViaMetadata() {
@@ -338,7 +433,8 @@
       throw new Error("No metadata key found in current Plex URL");
     }
 
-    const tokenCandidates = await findTokenCandidates();
+    const savedConnection = await getSavedPlexConnection();
+    const tokenCandidates = await findTokenCandidates(savedConnection);
     const tokensToTry = [null, ...tokenCandidates.map((x) => x.token)];
 
     for (const token of tokensToTry) {
@@ -350,9 +446,11 @@
         if (jsonInfo.partKey) {
           return {
             mediaUrl: buildPlaybackUrl(
+              metadataKey,
               jsonInfo.partKey,
               jsonInfo.subtitles,
               token,
+              getPlexServerOrigin(token, savedConnection),
             ),
           };
         }
@@ -361,9 +459,11 @@
         if (xmlInfo.partKey) {
           return {
             mediaUrl: buildPlaybackUrl(
+              metadataKey,
               xmlInfo.partKey,
               xmlInfo.subtitles,
               token,
+              getPlexServerOrigin(token, savedConnection),
             ),
           };
         }
@@ -373,16 +473,35 @@
     throw new Error("Could not resolve direct Plex media URL from metadata");
   }
 
-  async function openInIINA(mediaUrl) {
-    const response = await chrome.runtime.sendMessage({
-      type: "OPEN_IN_IINA",
-      mediaUrl,
-      options: {},
-    });
+  function buildIinaUrl(mediaUrl) {
+    return `iina://weblink?url=${encodeURIComponent(mediaUrl).replace(
+      /'/g,
+      "%27",
+    )}&new_window=1`;
+  }
 
-    if (!response?.ok) {
-      throw new Error(response?.error || "Background open failed");
-    }
+  function prefetchPlaybackUrl(route = location.hash || "") {
+    if (prefetchedRoute === route && prefetchPromise) return prefetchPromise;
+
+    prefetchedRoute = route;
+    prefetchedMediaUrl = null;
+    prefetchPromise = resolveViaMetadata()
+      .then(({ mediaUrl }) => {
+        if (prefetchedRoute === route) prefetchedMediaUrl = mediaUrl;
+        return mediaUrl;
+      })
+      .catch((error) => {
+        if (prefetchedRoute === route) prefetchPromise = null;
+        throw error;
+      });
+    return prefetchPromise;
+  }
+
+  function openInIINAFromClick(mediaUrl) {
+    // This must happen synchronously inside the user's click handler. Dispatching
+    // it later from the service worker merely activates IINA on recent macOS/IINA
+    // versions, without delivering the media URL.
+    window.location.href = buildIinaUrl(mediaUrl);
   }
 
   function makeButton() {
@@ -416,16 +535,17 @@
   }
 
   async function onButtonClick(btn) {
+    const route = btn.dataset.plexIinaRoute;
+    if (route && route === prefetchedRoute && prefetchedMediaUrl) {
+      setButtonState(btn, "Opening IINA…", true);
+      openInIINAFromClick(prefetchedMediaUrl);
+      return;
+    }
+
     try {
-      setButtonState(btn, "Working…", true);
-
-      const { mediaUrl } = await resolveViaMetadata();
-      await openInIINA(mediaUrl);
-      setButtonState(btn, "Opened");
-
-      setTimeout(() => {
-        if (document.contains(btn)) setButtonState(btn, "Play in IINA");
-      }, 1500);
+      setButtonState(btn, "Preparing IINA…", true);
+      await prefetchPlaybackUrl(route);
+      setButtonState(btn, "Ready — click again");
     } catch (error) {
       console.error("[IINAplex] Could not open Plex media in IINA.", error);
       setButtonState(btn, "Failed");
@@ -460,6 +580,9 @@
 
     const btn = makeButton();
     btn.dataset.plexIinaRoute = currentRoute;
+    prefetchPlaybackUrl(currentRoute).catch((error) =>
+      console.error("[IINAplex] Could not prepare Plex media URL.", error),
+    );
     btn.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
