@@ -21,6 +21,10 @@
 > IINAplex bridges that gap.
 
 <p align="center">
+  <a href="https://chromewebstore.google.com/detail/iinaplex/epjfaegeibjoigkenalmdagpbmelemik?hl=en"><strong>Take me there →</strong></a>
+</p>
+
+<p align="center">
   <img src="docs/images/example.png" alt="IINAplex example" width="500">
 </p>
 
