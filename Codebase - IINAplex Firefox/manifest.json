@@ -1,0 +1,61 @@
+{
+  "manifest_version": 3,
+  "name": "IINAplex",
+  "version": "1.0.1",
+  "description": "Adds a Play in IINA button to Plex Web.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "permissions": [
+    "storage",
+    "webRequest"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "http://127.0.0.1:32400/*",
+        "http://localhost:32400/*",
+        "http://10.100.102.13:32400/*",
+        "http://app.plex.tv/*",
+        "https://app.plex.tv/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:32400/*",
+    "http://localhost:32400/*",
+    "http://10.100.102.13:32400/*",
+    "http://*.plex.direct/*",
+    "https://*.plex.direct/*",
+    "http://app.plex.tv/*",
+    "https://app.plex.tv/*"
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "iinaplex@jeremyjacob.local",
+      "strict_min_version": "115.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
+  }
+}

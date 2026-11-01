@@ -230,3 +230,13 @@ All logic runs in your browser.
 ## License
 
 MIT License
+
+## Browser versions and installation
+
+The Chrome and Firefox extension folders are inside this project. To load Chrome unpacked, select the Chrome folder in chrome://extensions; an existing unpacked installation may need its path updated.
+
+For a temporary Zen installation, open about:debugging#/runtime/this-firefox, choose Load Temporary Add-on, and select manifest.json in the Firefox folder. Temporary add-ons are removed when Zen closes. Reload the relevant site after installation.
+
+For a persistent installation, submit the Firefox ZIP to Mozilla Add-ons as an unlisted self-distributed extension, download the signed XPI, then install it using Add-ons and Themes > gear > Install Add-on From File. See https://extensionworkshop.com/documentation/publish/submitting-an-add-on/. Mozilla may request original source and build instructions for bundled or minified code. A signed package and an AMO account are not included.
+
+Arc settings and site data are separate from Zen and are not automatically transferred.
