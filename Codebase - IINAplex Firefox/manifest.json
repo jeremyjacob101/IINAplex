@@ -26,9 +26,10 @@
   "content_scripts": [
     {
       "matches": [
-        "http://127.0.0.1:32400/*",
-        "http://localhost:32400/*",
-        "http://10.100.102.13:32400/*",
+        "http://127.0.0.1/*",
+        "http://localhost/*",
+        "http://10.100.102.13/*",
+        "http://10.100.102.6/*",
         "http://app.plex.tv/*",
         "https://app.plex.tv/*"
       ],
@@ -39,9 +40,10 @@
     }
   ],
   "host_permissions": [
-    "http://127.0.0.1:32400/*",
-    "http://localhost:32400/*",
-    "http://10.100.102.13:32400/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "http://10.100.102.13/*",
+    "http://10.100.102.6/*",
     "http://*.plex.direct/*",
     "https://*.plex.direct/*",
     "http://app.plex.tv/*",

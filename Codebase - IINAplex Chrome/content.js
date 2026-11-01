@@ -1,4 +1,5 @@
 (() => {
+  if (["127.0.0.1", "localhost", "10.100.102.13", "10.100.102.6"].includes(location.hostname) && location.port !== "32400") return;
   const BUTTON_ID = "plex-play-in-iina-button";
   const PLAY_BUTTON_XPATH =
     "/html/body/div[1]/div[3]/div/div[2]/div[2]/div/div[1]/div/div[2]/div[2]/button[1]";

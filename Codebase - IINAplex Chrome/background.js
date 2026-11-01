@@ -1,8 +1,9 @@
 const LOG = "[Plex IINA bg]";
 const PLEX_REQUEST_PATTERNS = [
-  "http://127.0.0.1:32400/*",
-  "http://localhost:32400/*",
-  "http://10.100.102.13:32400/*",
+  "http://127.0.0.1/*",
+  "http://localhost/*",
+  "http://10.100.102.13/*",
+  "http://10.100.102.6/*",
   "http://*.plex.direct/*",
   "https://*.plex.direct/*",
   "http://app.plex.tv/*",
@@ -28,6 +29,8 @@ function extractPlexToken(requestUrl) {
 
 function rememberPlexConnection(details) {
   if (details.tabId < 0) return;
+  const requestUrl = new URL(details.url);
+  if (["127.0.0.1", "localhost", "10.100.102.13", "10.100.102.6"].includes(requestUrl.hostname) && requestUrl.port !== "32400") return;
 
   const token = extractPlexToken(details.url);
   if (!token) return;
